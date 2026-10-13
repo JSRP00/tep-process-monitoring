@@ -4,7 +4,7 @@
 
 Benchmark of classical multivariate statistical process control (MSPC) and machine-learning methods for fault detection on the Tennessee Eastman Process (TEP): PCA, dynamic PCA, autoencoders, one-class SVM, LOF and Isolation Forest.
 
-All methods are trained on normal operation only and evaluated on the 21 standard TEP faults with the same metrics, so they can be compared on equal terms.
+All methods are trained on normal operation only and evaluated on the 21 standard TEP faults with the same metrics, so they can be compared on equal terms. A second experiment checks whether their control limits give the false alarm rate they promise.
 
 ## Data
 
@@ -79,12 +79,51 @@ Detection rate (%) per fault at 1% false alarms:
 
 - **At equal false alarm rate, the best methods are within about 2 points of each other.** The dynamic autoencoder (65.1%), dynamic PCA (64.8%), autoencoder (64.0%) and PCA's SPE (63.3%) are practically tied: across random seeds the autoencoder alone varies by about ±1.3 points. Non-linear models add little over linear PCA on this dataset.
 - **Using time order helps on specific faults, not across the board.** Dynamic models improve faults 10, 11, 16 and 19, which develop slowly or affect dynamics, but not the rest.
-- **Own control limits can be badly miscalibrated.** Dynamic PCA looks best with its own limits (78.1% detection) only because it raises 19.3% false alarms: the theoretical SPE limit assumes independent samples, which lagged data are not. This is why methods must be compared at the same false alarm rate.
+- **Own control limits can be badly miscalibrated.** Dynamic PCA looks best with its own limits (78.1% detection) only because it raises 19.3% false alarms. This is why methods must be compared at the same false alarm rate; the next section looks at the cause.
 - **Generic anomaly detectors fall behind.** One-class SVM and LOF have similar AUC but detect less at 1% false alarms, and miss much of fault 4. Isolation Forest is clearly the weakest: scoring samples one by one misses faults that change the correlation between variables (4, 11, 14, 17).
 - **Faults 3, 9 and 15 remain undetectable** for every method (≤ 5% at 1% false alarms).
 - **Statistical methods react faster.** PCA's SPE has the shortest median delay (9 minutes), against about 30 minutes for the autoencoders.
 
 Full results per fault and metric: [`results/summary.md`](results/summary.md).
+
+## Control limits
+
+A 99% control limit promises 1% false alarms on new normal data. This experiment keeps each model fixed and changes only how its limit is set:
+
+| Method | How the limit is set |
+| --- | --- |
+| Own | The monitor's default: theoretical limits for PCA, a random 30% hold-out for ML models |
+| In-sample | 99% quantile of the statistic on the training data |
+| Split | Model trained on the first 70% of the normal run; conformal quantile on the last 30% |
+| CV | 5 contiguous folds, each scored by a model trained on the others; conformal quantile of these out-of-fold values |
+
+False alarms are measured on 22 independent normal runs (4,320 samples): the normal test file and the fault-free first 160 samples of each fault file.
+
+False alarm rate (%), target 1%:
+
+| Monitor | Own | In-sample | Split | CV |
+|---|---:|---:|---:|---:|
+| PCA T² | 1.2 | 3.0 | 2.2 | 2.6 |
+| PCA SPE | 5.8 | 11.2 | 3.8 | 0.6 |
+| Dynamic PCA T² | 0.6 | 1.5 | 2.7 | 4.9 |
+| Dynamic PCA SPE | 15.2 | 16.6 | 1.9 | 0.6 |
+| Autoencoder | 2.9 | 10.7 | 3.2 | 0.8 |
+| Dynamic autoencoder | 4.5 | 17.3 | 1.2 | 1.2 |
+| One-class SVM | 7.7 | 32.1 | 4.2 | 2.8 |
+| LOF | 7.2 | 7.0 | 2.6 | 4.0 |
+| Isolation Forest | 8.2 | 8.0 | 1.6 | 5.4 |
+
+**Reading the results**
+
+- **Limits set on the training data are optimistic.** In-sample limits give 1.5–32% false alarms instead of 1%, and above 7% for most monitors. Models fit their training data more closely than new data: on average, SPE on new normal data is 25–28% higher than on the training data, for both PCA and dynamic PCA.
+- **The theoretical T² limit holds; the theoretical SPE limit does not.** T² stays close to 1% (1.2% and 0.6%). The SPE limit is computed from the training residuals, so it inherits the same optimism: 5.8% for PCA and 15.2% for dynamic PCA.
+- **Calibrating on normal data the model has not seen helps, but is not exact.** Split and CV give 0.6–5.4%. With only 25 hours of normal data, the result depends on where the data are cut: moving the split from 20% to 40% changes PCA SPE from 5.0% to 1.9%. A 1% limit from 150 calibration samples rests on one or two observations.
+- **Part of the apparent detection advantage is false alarms.** With split limits, dynamic PCA SPE drops from 78.1% to 68.1% detection, and its false alarms on the 22 normal runs from 15.2% to 1.9%.
+- **Normal runs differ.** In the worst of the 22 normal runs, false alarms exceed 10% for most combinations of monitor and limit, so a limit set on a single normal run cannot anticipate every new run.
+
+In practice: report the false alarm rate on independent normal data together with the detection rate, and set SPE and ML limits on data the model was not trained on.
+
+Full tables, including detection rates and the worst run: [`results/limits.md`](results/limits.md).
 
 ## Usage
 
@@ -92,7 +131,8 @@ Full results per fault and metric: [`results/summary.md`](results/summary.md).
 git clone https://github.com/JSRP00/tep-process-monitoring.git
 cd tep-process-monitoring
 pip install -e ".[test]"
-python scripts/run_benchmark.py
+python scripts/run_benchmark.py   # method comparison
+python scripts/run_limits.py      # control limit comparison
 ```
 
 Adding a model takes one line in `MONITORS` in `scripts/run_benchmark.py`. Any model with `fit` and `score_samples` (scikit-learn style) can be wrapped with `ScoreMonitor`, as done for Isolation Forest.

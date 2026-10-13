@@ -74,3 +74,31 @@ def test_dynamic_pca_runs(normal_data):
     from tepmon import LaggedMonitor
     monitor = LaggedMonitor(PCAMonitor(n_components=3), lags=2).fit(normal_data[:1000])
     assert monitor.alarms(normal_data[1000:]).shape == (1000,)
+
+
+def test_conformal_quantile():
+    from tepmon.limits import conformal_quantile
+    values = np.arange(1, 100)  # 99 values
+    assert conformal_quantile(values, 0.1) == 90  # ceil(100 * 0.9) = 90th smallest
+    assert conformal_quantile(values, 0.001) == 99  # capped at the largest value
+
+
+@pytest.mark.parametrize("method", ["own", "in_sample", "split", "cv"])
+def test_fit_with_limits_sets_every_limit(normal_data, method):
+    from tepmon.limits import fit_with_limits
+    make = lambda share: PCAMonitor(n_components=3)
+    monitor = fit_with_limits(make, normal_data[:1000], method)
+    assert set(monitor.limits_) == {"T2", "SPE"}
+    assert monitor.alarms(normal_data[1000:]).mean() < 0.05
+
+
+def test_in_sample_limit_is_optimistic():
+    # Few samples and many variables: SPE on new data exceeds SPE on training data.
+    from tepmon.limits import fit_with_limits
+    rng = np.random.default_rng(1)
+    X = rng.normal(size=(1200, 40))
+    make = lambda share: PCAMonitor(n_components=5)
+    in_sample = fit_with_limits(make, X[:100], "in_sample")
+    split = fit_with_limits(make, X[:100], "split")
+    assert in_sample.limits_["SPE"] < split.limits_["SPE"]
+    assert in_sample.alarms(X[100:], "SPE").mean() > 0.02

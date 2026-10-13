@@ -15,6 +15,15 @@ import numpy as np
 from scipy import stats
 
 
+def _split(Z: np.ndarray, share: float, random_state: int) -> tuple[np.ndarray, np.ndarray]:
+    """Random (calibration, training) split. With ``share=0`` both are the full data."""
+    n_cal = int(round(share * len(Z)))
+    if n_cal == 0:
+        return Z, Z
+    idx = np.random.default_rng(random_state).permutation(len(Z))
+    return Z[idx[:n_cal]], Z[idx[n_cal:]]
+
+
 class Monitor:
     """Base class. Subclasses implement ``fit`` and ``statistics``."""
 
@@ -103,7 +112,8 @@ class ScoreMonitor(Monitor):
     The model is trained on standardised normal data. Its anomaly score is
     ``-model.score_samples(X)`` by default (higher = more anomalous), and the
     control limit is the empirical (1 - alpha) quantile of the scores on a
-    held-out part of the normal data, so it is not fitted on the same samples.
+    held-out part of the normal data, so it is not fitted on the same samples
+    (``calibration_share=0`` trains on all data and sets the limit on it).
 
     Example
     -------
@@ -127,10 +137,7 @@ class ScoreMonitor(Monitor):
         self.std_[self.std_ == 0] = 1.0
         Z = (X - self.mean_) / self.std_
 
-        rng = np.random.default_rng(self.random_state)
-        idx = rng.permutation(len(Z))
-        n_cal = int(round(self.calibration_share * len(Z)))
-        cal, train = Z[idx[:n_cal]], Z[idx[n_cal:]]
+        cal, train = _split(Z, self.calibration_share, self.random_state)
 
         self.model.fit(train)
         self.limits_ = {self.name: float(np.quantile(self.score(self.model, cal), 1 - self.alpha))}
@@ -160,7 +167,8 @@ class AutoencoderMonitor(Monitor):
     alpha : float
         False-alarm probability for the control limit.
     calibration_share : float
-        Share of normal data kept out of training to set the limit.
+        Share of normal data kept out of training to set the limit
+        (0 = train on all data and set the limit on the training data itself).
     """
 
     def __init__(self, hidden=(32, 11, 32), alpha: float = 0.01, calibration_share: float = 0.3,
@@ -180,10 +188,7 @@ class AutoencoderMonitor(Monitor):
         self.std_[self.std_ == 0] = 1.0
         Z = (X - self.mean_) / self.std_
 
-        rng = np.random.default_rng(self.random_state)
-        idx = rng.permutation(len(Z))
-        n_cal = int(round(self.calibration_share * len(Z)))
-        cal, train = Z[idx[:n_cal]], Z[idx[n_cal:]]
+        cal, train = _split(Z, self.calibration_share, self.random_state)
 
         self.model_ = MLPRegressor(hidden_layer_sizes=self.hidden, activation="tanh", alpha=1e-3,
                                    max_iter=self.max_iter, early_stopping=True, validation_fraction=0.15,
