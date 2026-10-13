@@ -139,3 +139,62 @@ class ScoreMonitor(Monitor):
     def statistics(self, X: np.ndarray) -> dict[str, np.ndarray]:
         Z = (np.asarray(X, dtype=float) - self.mean_) / self.std_
         return {self.name: np.asarray(self.score(self.model, Z))}
+
+
+class AutoencoderMonitor(Monitor):
+    """Non-linear counterpart of PCA: an autoencoder trained on normal data.
+
+    The network compresses the standardised variables into a bottleneck and
+    reconstructs them. Its monitoring statistic is the reconstruction error
+    (the non-linear analogue of PCA's SPE), and the control limit is the
+    empirical (1 - alpha) quantile of that error on held-out normal data.
+
+    Built on scikit-learn's ``MLPRegressor`` (input = target), so it needs no
+    deep-learning framework.
+
+    Parameters
+    ----------
+    hidden : tuple of int
+        Layer sizes from input to output, e.g. (32, 11, 32): the middle value
+        is the bottleneck.
+    alpha : float
+        False-alarm probability for the control limit.
+    calibration_share : float
+        Share of normal data kept out of training to set the limit.
+    """
+
+    def __init__(self, hidden=(32, 11, 32), alpha: float = 0.01, calibration_share: float = 0.3,
+                 max_iter: int = 2000, random_state: int = 0):
+        self.hidden = hidden
+        self.alpha = alpha
+        self.calibration_share = calibration_share
+        self.max_iter = max_iter
+        self.random_state = random_state
+
+    def fit(self, X: np.ndarray) -> "AutoencoderMonitor":
+        from sklearn.neural_network import MLPRegressor
+
+        X = np.asarray(X, dtype=float)
+        self.mean_ = X.mean(axis=0)
+        self.std_ = X.std(axis=0, ddof=1)
+        self.std_[self.std_ == 0] = 1.0
+        Z = (X - self.mean_) / self.std_
+
+        rng = np.random.default_rng(self.random_state)
+        idx = rng.permutation(len(Z))
+        n_cal = int(round(self.calibration_share * len(Z)))
+        cal, train = Z[idx[:n_cal]], Z[idx[n_cal:]]
+
+        self.model_ = MLPRegressor(hidden_layer_sizes=self.hidden, activation="tanh", alpha=1e-3,
+                                   max_iter=self.max_iter, early_stopping=True, validation_fraction=0.15,
+                                   n_iter_no_change=50, random_state=self.random_state)
+        self.model_.fit(train, train)
+        self.limits_ = {"RE": float(np.quantile(self._error(cal), 1 - self.alpha))}
+        return self
+
+    def _error(self, Z: np.ndarray) -> np.ndarray:
+        return np.sum((self.model_.predict(Z) - Z) ** 2, axis=1)
+
+    def statistics(self, X: np.ndarray) -> dict[str, np.ndarray]:
+        Z = (np.asarray(X, dtype=float) - self.mean_) / self.std_
+        return {"RE": self._error(Z)}

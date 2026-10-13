@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 from sklearn.ensemble import IsolationForest
 
-from tepmon import PCAMonitor, ScoreMonitor, detection_delay, detection_rate, false_alarm_rate
+from tepmon import AutoencoderMonitor, PCAMonitor, ScoreMonitor, detection_delay, detection_rate, false_alarm_rate
 
 
 @pytest.fixture
@@ -52,3 +52,10 @@ def test_metrics():
     assert detection_delay(alarms, y) == 1
     assert detection_delay(alarms, y, run=3) == 1
     assert np.isnan(detection_delay(np.zeros(7, dtype=bool), y))
+
+
+def test_autoencoder_detects_mean_shift(normal_data):
+    monitor = AutoencoderMonitor(hidden=(8, 3, 8), max_iter=500).fit(normal_data[:1000])
+    assert set(monitor.limits_) == {"RE"}
+    shifted = normal_data[1000:1200] + 3.0 * normal_data.std(axis=0)
+    assert monitor.alarms(shifted).mean() > monitor.alarms(normal_data[1000:]).mean()
