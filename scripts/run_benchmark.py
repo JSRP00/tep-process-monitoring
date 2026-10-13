@@ -8,13 +8,14 @@ Add your own monitors to MONITORS. Any model with ``fit`` and ``score_samples``
 
 from pathlib import Path
 
-from tepmon import PCAMonitor
+from sklearn.ensemble import IsolationForest
+
+from tepmon import PCAMonitor, ScoreMonitor
 from tepmon.benchmark import run, summary
 
 MONITORS = {
     "PCA": PCAMonitor(n_components=11, alpha=0.01),
-    # Example of how to add an ML model:
-    # "IsolationForest": ScoreMonitor(IsolationForest(random_state=0), name="IF"),
+    "IsolationForest": ScoreMonitor(IsolationForest(n_estimators=300, random_state=0), name="IF", alpha=0.01),
 }
 
 if __name__ == "__main__":
