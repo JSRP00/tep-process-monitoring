@@ -59,3 +59,18 @@ def test_autoencoder_detects_mean_shift(normal_data):
     assert set(monitor.limits_) == {"RE"}
     shifted = normal_data[1000:1200] + 3.0 * normal_data.std(axis=0)
     assert monitor.alarms(shifted).mean() > monitor.alarms(normal_data[1000:]).mean()
+
+
+def test_lag_embed_shapes_and_order():
+    from tepmon import lag_embed
+    X = np.arange(12, dtype=float).reshape(6, 2)
+    L = lag_embed(X, 2)
+    assert L.shape == (6, 6)
+    np.testing.assert_array_equal(L[3], [6, 7, 4, 5, 2, 3])  # x_t, x_{t-1}, x_{t-2}
+    np.testing.assert_array_equal(L[0], [0, 1, 0, 1, 0, 1])  # padded with the first sample
+
+
+def test_dynamic_pca_runs(normal_data):
+    from tepmon import LaggedMonitor
+    monitor = LaggedMonitor(PCAMonitor(n_components=3), lags=2).fit(normal_data[:1000])
+    assert monitor.alarms(normal_data[1000:]).shape == (1000,)

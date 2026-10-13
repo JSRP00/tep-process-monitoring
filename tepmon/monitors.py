@@ -198,3 +198,36 @@ class AutoencoderMonitor(Monitor):
     def statistics(self, X: np.ndarray) -> dict[str, np.ndarray]:
         Z = (np.asarray(X, dtype=float) - self.mean_) / self.std_
         return {"RE": self._error(Z)}
+
+
+def lag_embed(X: np.ndarray, lags: int) -> np.ndarray:
+    """Stack each sample with its ``lags`` previous samples: [x_t, x_{t-1}, ..., x_{t-lags}].
+
+    The first ``lags`` rows have no history; they are padded by repeating the
+    first sample so the output keeps one row per input sample.
+    """
+    X = np.asarray(X, dtype=float)
+    padded = np.vstack([np.repeat(X[:1], lags, axis=0), X])
+    n = len(X)
+    return np.hstack([padded[lags - k: lags - k + n] for k in range(lags + 1)])
+
+
+class LaggedMonitor(Monitor):
+    """Makes any monitor dynamic by feeding it time-lagged samples.
+
+    With a ``PCAMonitor`` this is dynamic PCA (Ku, Storer & Georgakis, 1995):
+    the model sees each sample together with the previous ``lags`` samples, so
+    it can capture autocorrelation and cross-correlation over time.
+    """
+
+    def __init__(self, base: Monitor, lags: int = 2):
+        self.base = base
+        self.lags = lags
+
+    def fit(self, X: np.ndarray) -> "LaggedMonitor":
+        self.base.fit(lag_embed(X, self.lags))
+        self.limits_ = self.base.limits_
+        return self
+
+    def statistics(self, X: np.ndarray) -> dict[str, np.ndarray]:
+        return self.base.statistics(lag_embed(X, self.lags))

@@ -2,7 +2,7 @@
 
 [![tests](https://github.com/JSRP00/tep-process-monitoring/actions/workflows/tests.yml/badge.svg)](https://github.com/JSRP00/tep-process-monitoring/actions/workflows/tests.yml)
 
-Benchmark of classical multivariate statistical process control (MSPC) and machine-learning methods for fault detection on the Tennessee Eastman Process (TEP).
+Benchmark of classical multivariate statistical process control (MSPC) and machine-learning methods for fault detection on the Tennessee Eastman Process (TEP): PCA, dynamic PCA, autoencoders, one-class SVM, LOF and Isolation Forest.
 
 All methods are trained on normal operation only and evaluated on the 21 standard TEP faults with the same metrics, so they can be compared on equal terms.
 
@@ -12,57 +12,79 @@ The classic Braatz dataset: 52 process variables sampled every 3 minutes, 500 no
 
 ## Methods
 
-| Monitor | Statistics | Control limit |
+| Monitor | Type | Statistic |
 | --- | --- | --- |
-| `PCAMonitor` | Hotelling's T², SPE (Q) | F distribution (T²), Jackson–Mudholkar (SPE) |
-| `ScoreMonitor` | Anomaly score of any scikit-learn style model | Empirical quantile on held-out normal data |
-| `AutoencoderMonitor` | Reconstruction error of a 32–11–32 autoencoder | Empirical quantile on held-out normal data |
+| PCA | Linear, static | Hotelling's T² and SPE, with F-distribution and Jackson–Mudholkar limits |
+| Dynamic PCA | Linear, uses the 2 previous samples | Same as PCA, on time-lagged data (Ku et al., 1995) |
+| Autoencoder | Non-linear, static | Reconstruction error of a 32–11–32 network |
+| Dynamic autoencoder | Non-linear, uses the 2 previous samples | Reconstruction error of a 64–20–64 network on time-lagged data |
+| One-class SVM | Non-linear boundary, static | Distance to the learnt boundary |
+| LOF | Local density, static | Local outlier factor |
+| Isolation Forest | Tree ensemble, static | Isolation-based anomaly score |
+
+All settings were fixed before looking at the test results. Autoencoder bottlenecks match the number of PCA components (11 static, 20 dynamic, the same 54% of variance). ML models set their control limit as the 99% quantile of their score on held-out normal training data.
 
 ## Metrics
 
-- **FDR** (fault detection rate): share of faulty samples that raise an alarm.
-- **FAR** (false alarm rate): share of samples that raise an alarm on the normal test set.
-- **Detection delay**: samples from fault onset to the first alarm (×3 for minutes).
+Each method ends up with a different false alarm rate under its own control limit, so raw detection rates cannot be compared directly. The benchmark therefore reports three views:
+
+- **AUC**: how well the statistic separates normal from faulty samples, independent of any threshold.
+- **Detection at 1% FAR**: detection rate when every method's threshold is set to give exactly 1% false alarms on the normal test set. This is an evaluation-only threshold that puts all methods on equal terms.
+- **Detection and false alarms with the method's own limit**: what each method would actually do if deployed as configured.
+
+Detection delays are measured from fault onset to the first alarm with each method's own limit (TEP samples every 3 minutes).
 
 ## Results
 
-Fault detection rate (%) with 99% control limits. PCA uses 11 components; "PCA any" raises an alarm when either T² or SPE exceeds its limit. Isolation Forest uses 300 trees. The autoencoder has layers 32–11–32, so its bottleneck matches the 11 PCA components; its statistic is the reconstruction error. For both ML models the limit is set on held-out normal data. All settings were fixed before looking at the test results.
+Averages over the 21 faults (%), ordered by detection at 1% FAR:
 
-| Fault | PCA SPE | PCA T² | PCA any | Isolation Forest | Autoencoder |
-|---:|---:|---:|---:|---:|---:|
-| 1 | 99.8 | 99.2 | 99.8 | 99.2 | 99.8 |
-| 2 | 98.9 | 98.0 | 98.9 | 98.1 | 98.8 |
-| 3 | 9.6 | 2.6 | 12.0 | 20.0 | 6.8 |
-| 4 | 99.6 | 8.8 | 99.6 | 18.5 | 99.5 |
-| 5 | 34.9 | 24.6 | 37.1 | 38.2 | 33.6 |
-| 6 | 100.0 | 99.2 | 100.0 | 99.6 | 100.0 |
-| 7 | 100.0 | 96.0 | 100.0 | 55.6 | 100.0 |
-| 8 | 98.0 | 97.0 | 98.0 | 98.6 | 98.0 |
-| 9 | 8.1 | 2.9 | 10.5 | 20.4 | 5.1 |
-| 10 | 56.2 | 40.1 | 63.1 | 53.5 | 58.0 |
-| 11 | 77.0 | 28.2 | 77.8 | 33.5 | 72.2 |
-| 12 | 98.6 | 97.4 | 99.0 | 99.0 | 99.0 |
-| 13 | 95.5 | 94.0 | 95.5 | 95.6 | 95.5 |
-| 14 | 100.0 | 88.4 | 100.0 | 21.4 | 100.0 |
-| 15 | 12.0 | 5.0 | 16.2 | 20.4 | 10.6 |
-| 16 | 50.0 | 22.2 | 56.9 | 40.4 | 49.6 |
-| 17 | 94.2 | 77.2 | 94.4 | 47.0 | 93.2 |
-| 18 | 91.4 | 89.1 | 91.4 | 90.2 | 90.2 |
-| 19 | 36.4 | 1.1 | 37.2 | 16.0 | 27.0 |
-| 20 | 59.8 | 35.9 | 62.9 | 53.2 | 60.9 |
-| 21 | 54.2 | 30.4 | 54.4 | 42.6 | 47.8 |
-| **Mean detection rate** | 70.2 | 54.2 | 71.7 | 55.3 | 68.8 |
-| **False alarm rate** | 7.1 | 1.7 | 8.8 | 11.0 | 4.3 |
+| Method | Mean AUC | Detection at 1% FAR | Detection with own limit | False alarms with own limit | Median delay (min) |
+|---|---:|---:|---:|---:|---:|
+| Dynamic autoencoder | 87.6 | 65.1 | 72.3 | 6.2 | 33 |
+| Dynamic PCA SPE | 87.0 | 64.8 | 78.1 | 19.3 | 15 |
+| Autoencoder | 86.9 | 64.0 | 68.8 | 4.3 | 30 |
+| PCA SPE | 86.3 | 63.3 | 70.2 | 7.1 | 9 |
+| LOF | 86.4 | 59.7 | 72.8 | 11.8 | 15 |
+| One-class SVM | 86.1 | 57.5 | 71.9 | 11.2 | 15 |
+| PCA T² | 81.5 | 52.3 | 54.2 | 1.7 | 48 |
+| Isolation Forest | 79.2 | 38.1 | 55.3 | 11.0 | 21 |
+
+Detection rate (%) per fault at 1% false alarms:
+
+| Fault | PCA T² | PCA SPE | Dynamic PCA SPE | Autoencoder | Dynamic autoencoder | One-class SVM | LOF | Isolation Forest |
+|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 1 | 99 | 100 | 100 | 100 | 100 | 100 | 100 | 80 |
+| 2 | 98 | 99 | 99 | 99 | 98 | 98 | 98 | 96 |
+| 3 | 1 | 1 | 1 | 1 | 1 | 1 | 0 | 2 |
+| 4 | 6 | 97 | 100 | 95 | 100 | 27 | 59 | 1 |
+| 5 | 23 | 26 | 26 | 27 | 26 | 23 | 23 | 22 |
+| 6 | 99 | 100 | 100 | 100 | 100 | 100 | 100 | 99 |
+| 7 | 94 | 100 | 100 | 100 | 100 | 100 | 100 | 40 |
+| 8 | 97 | 98 | 98 | 98 | 97 | 97 | 98 | 96 |
+| 9 | 1 | 2 | 1 | 1 | 1 | 0 | 0 | 1 |
+| 10 | 36 | 37 | 37 | 47 | 52 | 44 | 43 | 26 |
+| 11 | 23 | 65 | 79 | 63 | 75 | 46 | 52 | 5 |
+| 12 | 97 | 98 | 98 | 99 | 99 | 99 | 99 | 96 |
+| 13 | 94 | 96 | 95 | 95 | 95 | 94 | 95 | 92 |
+| 14 | 86 | 100 | 100 | 100 | 100 | 100 | 100 | 1 |
+| 15 | 2 | 4 | 2 | 3 | 4 | 4 | 5 | 3 |
+| 16 | 19 | 26 | 29 | 34 | 39 | 24 | 25 | 13 |
+| 17 | 75 | 90 | 94 | 89 | 91 | 85 | 87 | 12 |
+| 18 | 89 | 90 | 90 | 90 | 89 | 89 | 89 | 88 |
+| 19 | 1 | 14 | 22 | 10 | 6 | 0 | 1 | 0 |
+| 20 | 32 | 46 | 50 | 50 | 52 | 41 | 43 | 12 |
+| 21 | 27 | 44 | 42 | 43 | 41 | 36 | 38 | 13 |
 
 **Reading the results**
 
-- **The autoencoder performs on par with PCA's SPE, not better.** Both measure how far a sample departs from the structure learnt on normal data, and they detect the same faults at similar rates. Across 5 random seeds the autoencoder's false alarm rate ranges from 3.9% to 7.3% and its mean detection rate from 68.7% to 71.2%, against 7.1% and 70.2% for PCA's SPE. On this dataset the non-linearity adds little over linear PCA.
-- **Isolation Forest is clearly worse.** It misses most of faults 4, 7, 11, 14 and 17, which change the correlation between variables rather than the size of individual variables; scoring samples one by one does not capture that structure.
-- **Faults 3, 9 and 15 remain undetectable for every method.** Detection rates there are close to each method's own false alarm rate on normal data, so they reflect chance alarms rather than detection. Isolation Forest's ~20% on these faults comes with an 11% false alarm rate.
-- **Compare at similar false alarm rates.** A method with a higher FAR looks better on FDR for that reason alone. With limits estimated from a few hundred normal samples, the empirical 99% quantile is noisy.
-- **None of these methods uses the time order of the data.** TEP measurements are autocorrelated; dynamic methods (dynamic PCA, LSTM autoencoders) are the natural next step.
+- **At equal false alarm rate, the best methods are within about 2 points of each other.** The dynamic autoencoder (65.1%), dynamic PCA (64.8%), autoencoder (64.0%) and PCA's SPE (63.3%) are practically tied: across random seeds the autoencoder alone varies by about ±1.3 points. Non-linear models add little over linear PCA on this dataset.
+- **Using time order helps on specific faults, not across the board.** Dynamic models improve faults 10, 11, 16 and 19, which develop slowly or affect dynamics, but not the rest.
+- **Own control limits can be badly miscalibrated.** Dynamic PCA looks best with its own limits (78.1% detection) only because it raises 19.3% false alarms: the theoretical SPE limit assumes independent samples, which lagged data are not. This is why methods must be compared at the same false alarm rate.
+- **Generic anomaly detectors fall behind.** One-class SVM and LOF have similar AUC but detect less at 1% false alarms, and miss much of fault 4. Isolation Forest is clearly the weakest: scoring samples one by one misses faults that change the correlation between variables (4, 11, 14, 17).
+- **Faults 3, 9 and 15 remain undetectable** for every method (≤ 5% at 1% false alarms).
+- **Statistical methods react faster.** PCA's SPE has the shortest median delay (9 minutes), against about 30 minutes for the autoencoders.
 
-Full results, including detection delays: [`results/`](results).
+Full results per fault and metric: [`results/summary.md`](results/summary.md).
 
 ## Usage
 
