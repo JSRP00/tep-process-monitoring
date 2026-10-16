@@ -99,6 +99,8 @@ A 99% control limit promises 1% false alarms on new normal data. This experiment
 
 False alarms are measured on 22 independent normal runs (4,320 samples): the normal test file and the fault-free first 160 samples of each fault file.
 
+![False alarm rate of each monitor under each way of setting its control limit](results/limits.png)
+
 False alarm rate (%), target 1%:
 
 | Monitor | Own | In-sample | Split | CV |
@@ -130,9 +132,10 @@ Full tables, including detection rates and the worst run: [`results/limits.md`](
 ```bash
 git clone https://github.com/JSRP00/tep-process-monitoring.git
 cd tep-process-monitoring
-pip install -e ".[test]"
+pip install -e ".[test,plot]"
 python scripts/run_benchmark.py   # method comparison
 python scripts/run_limits.py      # control limit comparison
+python scripts/plot_limits.py     # figure of the control limit comparison
 ```
 
 Adding a model takes one line in `MONITORS` in `scripts/run_benchmark.py`. Any model with `fit` and `score_samples` (scikit-learn style) can be wrapped with `ScoreMonitor`, as done for Isolation Forest.
